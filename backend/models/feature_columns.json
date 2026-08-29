@@ -1,0 +1,11 @@
+[
+  "cause_category_data_entry_error",
+  "cause_category_expired_card",
+  "cause_category_insufficient_funds",
+  "cause_category_issuer_risk_flag",
+  "cause_category_issuer_technical",
+  "event_type_payment_failure",
+  "event_type_subscription_renewal_failure",
+  "is_first_time_customer_0",
+  "is_first_time_customer_1"
+]
