@@ -25,7 +25,7 @@ from sklearn.metrics import (
     roc_auc_score, precision_recall_curve, average_precision_score,
     precision_score, recall_score, f1_score, brier_score_loss, confusion_matrix
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.preprocessing import StandardScaler
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "engine"))
@@ -165,20 +165,50 @@ def main():
     gbm_metrics = evaluate(model, "GradientBoostingClassifier")
     baseline_metrics = evaluate(baseline, "LogisticRegression (baseline)")
 
-    # --- select the PRODUCTION model based on held-out AUC, not vanity ---
-    # With a small batch (n=180) a simpler model can genuinely generalize
-    # better than a more flexible one. We pick whichever wins on the
-    # held-out set and say so explicitly, rather than always shipping the
-    # more sophisticated-looking model.
-    if gbm_metrics["auc"] >= baseline_metrics["auc"]:
+    # --- 5-fold cross-validation on the FULL dataset ---
+    # A single 70/30 split on n=180 is noisy: which rows land in the test
+    # fold can swing AUC by +/-0.1 or more just by chance. Cross-validation
+    # averages over 5 different splits, giving a far more stable, honestly
+    # reportable estimate. This is the number we use to pick the production
+    # model and the number that should be quoted in the pitch — the single
+    # held-out split above is kept only for the confusion matrix / PR curve,
+    # which need concrete predictions.
+    X_full, full_feature_columns = build_design_matrix(df)
+    X_full_scaled = StandardScaler().fit_transform(X_full)
+    y_full = y
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.seed)
+
+    gbm_cv_scores = cross_val_score(
+        GradientBoostingClassifier(n_estimators=150, max_depth=3, learning_rate=0.08, random_state=args.seed),
+        X_full_scaled, y_full, cv=cv, scoring="roc_auc"
+    )
+    lr_cv_scores = cross_val_score(
+        LogisticRegression(max_iter=1000), X_full_scaled, y_full, cv=cv, scoring="roc_auc"
+    )
+
+    print(f"\n=== 5-fold cross-validated AUC (stable estimate, n={len(df)}) ===")
+    print(f"  GradientBoosting:   {gbm_cv_scores.mean():.3f} +/- {gbm_cv_scores.std():.3f}  "
+          f"(folds: {np.round(gbm_cv_scores, 3).tolist()})")
+    print(f"  LogisticRegression: {lr_cv_scores.mean():.3f} +/- {lr_cv_scores.std():.3f}  "
+          f"(folds: {np.round(lr_cv_scores, 3).tolist()})")
+
+    gbm_metrics["cv_auc_mean"] = round(float(gbm_cv_scores.mean()), 4)
+    gbm_metrics["cv_auc_std"] = round(float(gbm_cv_scores.std()), 4)
+    gbm_metrics["cv_auc_folds"] = [round(float(s), 4) for s in gbm_cv_scores]
+    baseline_metrics["cv_auc_mean"] = round(float(lr_cv_scores.mean()), 4)
+    baseline_metrics["cv_auc_std"] = round(float(lr_cv_scores.std()), 4)
+    baseline_metrics["cv_auc_folds"] = [round(float(s), 4) for s in lr_cv_scores]
+
+    # --- select the PRODUCTION model based on CROSS-VALIDATED AUC, not a
+    # single noisy split. This is the defensible, stable choice. ---
+    if gbm_cv_scores.mean() >= lr_cv_scores.mean():
         production_model, production_name, production_metrics = model, "gradient_boosting", gbm_metrics
     else:
         production_model, production_name, production_metrics = baseline, "logistic_regression", baseline_metrics
 
     print(f"\n>>> Selected PRODUCTION model: {production_name} "
-          f"(held-out AUC {production_metrics['auc']:.3f} vs. "
-          f"{'baseline' if production_name=='gradient_boosting' else 'gbm'} "
-          f"{(baseline_metrics if production_name=='gradient_boosting' else gbm_metrics)['auc']:.3f})")
+          f"(5-fold CV AUC {production_metrics['cv_auc_mean']:.3f} +/- {production_metrics['cv_auc_std']:.3f})")
 
     # precision-recall curve points, computed for the PRODUCTION model
     proba_test = production_model.predict_proba(X_test_scaled)[:, 1]

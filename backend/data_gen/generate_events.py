@@ -171,7 +171,7 @@ def generate_events(n: int, seed: int) -> pd.DataFrame:
         ground_truth_recoverable = np.random.random() < recovery_prob
 
         rows.append({
-            "event_id": f"evt_{uuid.uuid4().hex[:10]}",
+            "event_id": f"evt_{uuid.UUID(int=rng.getrandbits(128)).hex[:10]}",
             "customer_id": customer_id,
             "event_type": event_type,
             "amount": amount,
