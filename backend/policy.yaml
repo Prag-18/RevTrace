@@ -1,3 +1,112 @@
-# Recovery policy configuration
-version: 1
-rules: []
+# =============================================================================
+# Revenue Recovery Policy
+# =============================================================================
+# This file is the single source of truth for what the agent is ALLOWED to
+# do. It is intentionally human-readable so anyone (a judge, a merchant ops
+# person) can see the exact rules without reading code.
+#
+# Decision inputs available to the policy at runtime:
+#   - cause_category        (from the rules-based diagnosis engine)
+#   - recovery_probability  (from the trained model, 0-1)
+#   - attempt_count         (how many recovery actions already taken on this event)
+#   - hours_since_last_action
+#
+# Decision outputs: one action from `actions`, or `hold` / `escalate_human`.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Hard caps — apply to EVERY event regardless of cause or score.
+# These exist so the agent cannot become a nuisance or a compliance risk
+# no matter what the model predicts.
+# ---------------------------------------------------------------------------
+global_limits:
+  max_attempts_per_event: 3          # hard ceiling; 4th attempt is never allowed
+  min_cooldown_hours_between_attempts: 12   # never contact/retry sooner than this
+  max_total_recovery_window_days: 14  # after this, event auto-closes as "lost", no further action
+
+# ---------------------------------------------------------------------------
+# Cause-specific rules.
+# `never_auto_action: true` means the agent MUST NOT take any customer-facing
+# action on its own for this cause — it goes straight to human escalation.
+# This is the compliance-sensitive part: issuer risk flags (fraud suspicion,
+# do-not-honor) are exactly the cases where an aggressive automated agent
+# could cause real harm (repeated charge attempts read as card testing to
+# the issuer, damaging the merchant's standing).
+# ---------------------------------------------------------------------------
+cause_rules:
+  insufficient_funds:
+    never_auto_action: false
+    cooldown_hours: 24              # give time for funds to become available
+    preferred_action_by_score: default   # use global score thresholds below
+
+  expired_card:
+    never_auto_action: false
+    cooldown_hours: 12
+    # retrying a known-expired card can never succeed — always ask for update,
+    # regardless of model score
+    forced_action: request_card_update
+
+  data_entry_error:
+    never_auto_action: false
+    cooldown_hours: 6
+    forced_action: request_card_update
+
+  issuer_technical:
+    never_auto_action: false
+    cooldown_hours: 1                # technical glitches resolve fast; retry soon
+    preferred_action_by_score: default
+
+  issuer_risk_flag:
+    never_auto_action: true          # fraud_suspected_by_issuer, do_not_honor
+    escalation_reason: >
+      Issuer applied a risk-based decline. Automated retry or repeated
+      contact could worsen the merchant's standing with the issuer or
+      read as card-testing behavior. Requires human review and, if
+      appropriate, an alternate verified payment method offered manually.
+
+# ---------------------------------------------------------------------------
+# Score-based action selection (used when a cause has no forced_action).
+# recovery_probability comes from the trained model.
+# ---------------------------------------------------------------------------
+score_thresholds:
+  - min_score: 0.55
+    action: retry_immediate
+  - min_score: 0.30
+    action: retry_delayed
+  - min_score: 0.0
+    action: request_card_update      # low confidence a bare retry works —
+                                       # ask the customer to act instead
+
+# ---------------------------------------------------------------------------
+# What each action actually means operationally.
+# ---------------------------------------------------------------------------
+actions:
+  retry_immediate:
+    description: "Generate a payment link and notify the customer immediately."
+    razorpay_call: create_payment_link
+    notify_delay_hours: 0
+
+  retry_delayed:
+    description: "Generate a payment link scheduled to notify after the cause-specific cooldown."
+    razorpay_call: create_payment_link
+    notify_delay_hours: cause_cooldown   # substituted at runtime
+
+  request_card_update:
+    description: "Generate a payment link with an update-payment-method prompt."
+    razorpay_call: create_payment_link
+    notify_delay_hours: 0
+
+  escalate_alternate_payment:
+    description: "Offer an alternate payment method (UPI/wallet) and flag for human review if it fails."
+    razorpay_call: create_payment_link
+    notify_delay_hours: 0
+
+  escalate_human:
+    description: "No automated customer-facing action. Routed to a human recovery queue with full context."
+    razorpay_call: null
+    notify_delay_hours: null
+
+  hold_closed_lost:
+    description: "Recovery window exhausted or attempts exhausted. Event closed as unrecovered."
+    razorpay_call: null
+    notify_delay_hours: null
