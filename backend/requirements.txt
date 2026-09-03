@@ -1,6 +1,12 @@
 fastapi
 uvicorn
 pandas
+numpy
 scikit-learn
 joblib
+pyyaml
 razorpay
+python-dotenv
+supabase
+pytest
+matplotlib

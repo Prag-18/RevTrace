@@ -52,10 +52,14 @@ class AuditLogger:
         if self.backend == "supabase":
             from supabase import create_client
             url = os.environ.get("SUPABASE_URL")
-            key = os.environ.get("SUPABASE_KEY")
+            # Accept the current Supabase variable names as well as the
+            # original generic name for backwards compatibility.
+            key = (os.environ.get("SUPABASE_SECRET_KEY")
+                   or os.environ.get("SUPABASE_KEY")
+                   or os.environ.get("SUPABASE_PUBLISHABLE_KEY"))
             if not url or not key:
                 raise RuntimeError(
-                    "AUDIT_BACKEND=supabase but SUPABASE_URL / SUPABASE_KEY are not set."
+                    "AUDIT_BACKEND=supabase but SUPABASE_URL and a Supabase key are not set."
                 )
             self.client = create_client(url, key)
         elif self.backend == "csv":
@@ -130,7 +134,10 @@ if __name__ == "__main__":
     history = lifecycle.run_to_completion()
 
     logger = AuditLogger()
-    logger.clear()
+    # A local demo run is reproducible after clearing its CSV. Never erase a
+    # shared Supabase audit table merely because this script was executed.
+    if logger.backend == "csv":
+        logger.clear()
     logger.log_steps(history)
 
     print(f"Wrote {len(history)} audit rows for event {event['event_id']}")

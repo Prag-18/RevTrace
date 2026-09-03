@@ -15,15 +15,37 @@ import pytest
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", "engine"))
 from policy import PolicyEngine, AttemptState  # noqa: E402
-from executor import RazorpayExecutor  # noqa: E402
+from executor import RazorpayExecutor, synthetic_indian_mobile  # noqa: E402
 from run_single_event import process_one_event, score_event, load_model_bundle  # noqa: E402
 
 DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "events.csv")
 
 
+@pytest.fixture(autouse=True)
+def force_mock_razorpay(monkeypatch):
+    """Forces mock mode for EVERY test in this file, regardless of what a
+    developer's local .env has set for RAZORPAY_MODE. This is essential:
+    without it, if a developer sets RAZORPAY_MODE=live to manually test
+    the live integration (as intended), the entire test suite silently
+    starts making real Razorpay API calls with placeholder test data
+    (fake short phone numbers, etc.) and fails or worse, spams the
+    account. Tests must be fully isolated from ambient environment state.
+    """
+    monkeypatch.setenv("RAZORPAY_MODE", "mock")
+
+
 @pytest.fixture(scope="module")
 def policy():
     return PolicyEngine()
+
+
+@pytest.fixture
+def executor():
+    # ALWAYS force mock mode in tests, regardless of what a developer's
+    # local .env has set (e.g. RAZORPAY_MODE=live for manual live testing).
+    # Tests must never depend on ambient environment state or make real
+    # API calls with placeholder test data.
+    return RazorpayExecutor(mock=True)
 
 
 # ---------------------------------------------------------------------------
@@ -110,14 +132,14 @@ class TestPolicyActionSelection:
 
 class TestExecutorMockMode:
     def test_mock_mode_active_by_default(self):
-        executor = RazorpayExecutor()
+        executor = RazorpayExecutor(mock=True)
         assert executor.mock is True
 
     def test_create_payment_link_succeeds(self):
-        executor = RazorpayExecutor()
+        executor = RazorpayExecutor(mock=True)
         result = executor.create_payment_link(
             event_id="evt_test1", amount_rupees=500.0, customer_name="Test",
-            customer_contact="+919999999999", description="test", action_type="retry_immediate",
+            customer_contact=synthetic_indian_mobile("test_customer"), description="test", action_type="retry_immediate",
         )
         assert result.success is True
         assert result.payment_link_id is not None
@@ -125,13 +147,13 @@ class TestExecutorMockMode:
         assert result.mock is True
 
     def test_same_inputs_give_same_mock_link_id(self):
-        executor = RazorpayExecutor()
+        executor = RazorpayExecutor(mock=True)
         r1 = executor.create_payment_link("evt_x", 100.0, "A", "+91123", "d", "retry_immediate")
         r2 = executor.create_payment_link("evt_x", 100.0, "A", "+91123", "d", "retry_immediate")
         assert r1.payment_link_id == r2.payment_link_id
 
     def test_different_action_type_gives_different_link_id(self):
-        executor = RazorpayExecutor()
+        executor = RazorpayExecutor(mock=True)
         r1 = executor.create_payment_link("evt_x", 100.0, "A", "+91123", "d", "retry_immediate")
         r2 = executor.create_payment_link("evt_x", 100.0, "A", "+91123", "d", "request_card_update")
         assert r1.payment_link_id != r2.payment_link_id

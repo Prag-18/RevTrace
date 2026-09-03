@@ -37,7 +37,18 @@ from dotenv import load_dotenv
 # no .env file is present — it just does nothing in that case.
 load_dotenv()
 
-MOCK_MODE = os.environ.get("RAZORPAY_MODE", "mock").lower() != "live"
+
+def _resolve_mock_mode() -> bool:
+    """Reads RAZORPAY_MODE from the environment AT CALL TIME, not at
+    import time. This matters because tests need to be able to force
+    mock mode regardless of whatever is in a developer's local .env —
+    otherwise a live RAZORPAY_MODE in .env silently makes the whole test
+    suite fire real API calls with placeholder test data.
+    """
+    return os.environ.get("RAZORPAY_MODE", "mock").lower() != "live"
+
+
+MOCK_MODE = _resolve_mock_mode()  # kept for backwards-compat / display purposes only
 
 
 def synthetic_indian_mobile(seed_str: str) -> str:
@@ -72,12 +83,19 @@ class RazorpayActionResult:
     payment_link_url: Optional[str]
     status: str                 # created / failed / error
     raw_response: dict
-    mock: bool = MOCK_MODE
+    mock: bool = False  # always overridden explicitly by the caller; see RazorpayExecutor
 
 
 class RazorpayExecutor:
-    def __init__(self):
-        self.mock = MOCK_MODE
+    def __init__(self, mock: Optional[bool] = None):
+        """
+        mock: explicit override. If None (default), resolved from the
+        RAZORPAY_MODE environment variable at construction time. Tests
+        should always pass mock=True explicitly rather than relying on
+        environment state, so test behavior never depends on whatever a
+        developer happens to have in their local .env.
+        """
+        self.mock = mock if mock is not None else _resolve_mock_mode()
         if not self.mock:
             import razorpay  # imported lazily so mock mode has zero dependency risk
             key_id = os.environ.get("RAZORPAY_KEY_ID")
@@ -206,7 +224,8 @@ class RazorpayExecutor:
 
 
 if __name__ == "__main__":
-    print(f"RazorpayExecutor running in {'MOCK' if MOCK_MODE else 'LIVE'} mode\n")
+    _mock_mode = _resolve_mock_mode()
+    print(f"RazorpayExecutor running in {'MOCK' if _mock_mode else 'LIVE'} mode\n")
     executor = RazorpayExecutor()
     result = executor.create_payment_link(
         event_id="evt_test123",
