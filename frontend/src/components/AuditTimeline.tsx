@@ -4,10 +4,26 @@ export const ACTION_LABELS: Record<string, string> = {
   retry_immediate: "Retry Immediately",
   retry_delayed: "Retry (Delayed / Cooldown)",
   request_card_update: "Request Card Update via Email",
-  escalate_alternate_payment: "Escalate — Offer Alternate Payment (UPI/Netbanking)",
-  escalate_human: "Escalate to Human Operations Review",
-  hold: "Held (Cooldown / Attempt Limit)",
-  hold_closed_lost: "Closed — Unrecovered (Exhausted)",
+  escalate_alternate_payment: "Escalate — Offer Alternate Payment",
+  escalate_human: "Escalate to Human Operations",
+  hold: "Hold (Cooldown Active)",
+  hold_closed_lost: "Close — Unrecovered (Exhausted)",
+};
+
+const CAUSE_LABELS: Record<string, string> = {
+  insufficient_funds: "Insufficient Funds",
+  expired_card: "Expired Card",
+  data_entry_error: "Data Entry Error (CVV)",
+  issuer_technical: "Issuer Technical Failure",
+  issuer_risk_flag: "Issuer Risk Flag (Fraud/Decline)",
+};
+
+const CAUSE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  insufficient_funds: { bg: "rgba(99, 102, 241, 0.15)", text: "#818cf8", border: "rgba(99, 102, 241, 0.3)" },
+  expired_card: { bg: "rgba(245, 158, 11, 0.15)", text: "#fbbf24", border: "rgba(245, 158, 11, 0.3)" },
+  data_entry_error: { bg: "rgba(168, 85, 247, 0.15)", text: "#c084fc", border: "rgba(168, 85, 247, 0.3)" },
+  issuer_technical: { bg: "rgba(6, 182, 212, 0.15)", text: "#22d3ee", border: "rgba(6, 182, 212, 0.3)" },
+  issuer_risk_flag: { bg: "rgba(244, 63, 94, 0.15)", text: "#fb7185", border: "rgba(244, 63, 94, 0.3)" },
 };
 
 const getActionIcon = (action: string) => {
@@ -43,6 +59,132 @@ const getActionIcon = (action: string) => {
     </svg>
   );
 };
+
+/** Render policy rationale with visual decision flow chips instead of raw unformatted logs */
+function DecisionRationaleView({ rationale }: { rationale: string }) {
+  // Pattern 1: Cause '...', model-predicted recovery probability X -> action '...' per Y policy.
+  const scoreMatch = rationale.match(
+    /^Cause\s+'([^']+)',\s+model-predicted recovery probability\s+([\d\.]+)\s+->\s+action\s+'([^']+)'\s+per\s+([^\.]+)\s+policy\.?$/i
+  );
+  if (scoreMatch) {
+    const [, cause, probStr, action, policy] = scoreMatch;
+    const prob = Math.round(parseFloat(probStr) * 100);
+    const causeStyle = CAUSE_COLORS[cause] || { bg: "rgba(255,255,255,0.06)", text: "#cbd5e1", border: "rgba(255,255,255,0.1)" };
+
+    return (
+      <div className="decision-flow-container">
+        <div className="decision-flow-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="9 11 12 14 22 4" />
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          </svg>
+          <span>Autonomous Policy Evaluation</span>
+        </div>
+        <div className="decision-flow-grid">
+          <div className="decision-node" style={{ background: causeStyle.bg, borderColor: causeStyle.border }}>
+            <span className="decision-node-label">Diagnosed Cause</span>
+            <strong className="decision-node-value" style={{ color: causeStyle.text }}>
+              {CAUSE_LABELS[cause] || cause.replace(/_/g, " ")}
+            </strong>
+          </div>
+
+          <div className="decision-connector">
+            <span>+</span>
+          </div>
+
+          <div className="decision-node score-node">
+            <span className="decision-node-label">ML Inferred Recovery</span>
+            <strong className="decision-node-value" style={{ color: prob >= 60 ? "#34d399" : prob >= 30 ? "#fbbf24" : "#fb7185" }}>
+              {prob}% Probability
+            </strong>
+          </div>
+
+          <div className="decision-connector">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </div>
+
+          <div className="decision-node action-node">
+            <span className="decision-node-label">Triggered Action</span>
+            <strong className="decision-node-value" style={{ color: "#ffffff" }}>
+              {ACTION_LABELS[action] || action.replace(/_/g, " ")}
+            </strong>
+          </div>
+        </div>
+        <div className="decision-flow-footer">
+          <span className="policy-rule-badge">Rule: {policy.replace(/_/g, " ")} policy</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Pattern 2: Cause '...' cannot be resolved... Forcing action '...' regardless of model score (X)
+  const forcedMatch = rationale.match(
+    /^Cause\s+'([^']+)'\s+cannot be resolved by retrying.*?Forcing action\s+'([^']+)'\s+regardless of model score\s*\(([\d\.]+)\)\.?$/i
+  );
+  if (forcedMatch) {
+    const [, cause, action, probStr] = forcedMatch;
+    const prob = Math.round(parseFloat(probStr) * 100);
+    const causeStyle = CAUSE_COLORS[cause] || { bg: "rgba(245, 158, 11, 0.15)", text: "#fbbf24", border: "rgba(245, 158, 11, 0.3)" };
+
+    return (
+      <div className="decision-flow-container forced-rule">
+        <div className="decision-flow-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+          <span>Forced Cause Rule (Deterministic Override)</span>
+        </div>
+        <div className="decision-flow-grid">
+          <div className="decision-node" style={{ background: causeStyle.bg, borderColor: causeStyle.border }}>
+            <span className="decision-node-label">Diagnosed Cause</span>
+            <strong className="decision-node-value" style={{ color: causeStyle.text }}>
+              {CAUSE_LABELS[cause] || cause.replace(/_/g, " ")}
+            </strong>
+          </div>
+
+          <div className="decision-connector">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </div>
+
+          <div className="decision-node action-node forced">
+            <span className="decision-node-label">Forced Policy Intervention</span>
+            <strong className="decision-node-value" style={{ color: "#fbbf24" }}>
+              {ACTION_LABELS[action] || action.replace(/_/g, " ")}
+            </strong>
+          </div>
+        </div>
+        <div className="decision-flow-footer">
+          <span className="policy-rule-badge warning">
+            Bypasses raw ML prediction ({prob}%) — Retrying the same credentials cannot succeed
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Universal Fallback: Formatted text with code badges for quoted parameters
+  const formattedParts = rationale.split(/('[\w_]+')/g).map((part, index) => {
+    if (part.startsWith("'") && part.endsWith("'")) {
+      const clean = part.slice(1, -1);
+      return (
+        <code key={index} className="inline-param-badge">
+          {ACTION_LABELS[clean] || CAUSE_LABELS[clean] || clean.replace(/_/g, " ")}
+        </code>
+      );
+    }
+    return part;
+  });
+
+  return <p className="timeline-rationale">{formattedParts}</p>;
+}
 
 export default function AuditTimeline({ steps }: { steps: AuditStep[] }) {
   return (
@@ -81,7 +223,8 @@ export default function AuditTimeline({ steps }: { steps: AuditStep[] }) {
                 </div>
               </div>
 
-              <p className="timeline-rationale">{s.policy_rationale}</p>
+              {/* Enhanced Visual Decision Rationale */}
+              <DecisionRationaleView rationale={s.policy_rationale} />
 
               {s.blocked && s.block_reason && (
                 <div className="block-tag">
