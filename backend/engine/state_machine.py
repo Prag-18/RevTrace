@@ -28,6 +28,26 @@ from policy import PolicyEngine, AttemptState, PolicyDecision
 from executor import RazorpayExecutor, synthetic_indian_mobile
 
 
+# For backtest-outcome simulation only: which actions are PLAUSIBLE for a
+# given cause_category, not just the single fixed label produced by the
+# Day-1 generator. The generator's ground_truth_best_action picks one
+# canonical action per decline_code (e.g. insufficient_funds -> always
+# "retry_delayed"), but the actual policy is score-driven and can
+# correctly choose retry_immediate for a high-confidence insufficient_
+# funds case, or retry_delayed for a borderline issuer_technical case —
+# both are legitimate, cause-appropriate choices. Comparing against a
+# single rigid label would unfairly penalize good dynamic decisions.
+# Only genuinely nonsensical combinations (e.g. asking for a card update
+# on a transient issuer-technical glitch) count as a real mismatch.
+PLAUSIBLE_ACTIONS_BY_CAUSE = {
+    "insufficient_funds": {"retry_immediate", "retry_delayed"},
+    "expired_card": {"request_card_update"},
+    "data_entry_error": {"request_card_update"},
+    "issuer_technical": {"retry_immediate", "retry_delayed"},
+    "issuer_risk_flag": {"escalate_alternate_payment"},
+}
+
+
 class EventStatus(Enum):
     OPEN = "open"                   # still being actively worked
     RECOVERED = "recovered"         # payment succeeded
@@ -153,8 +173,11 @@ class EventLifecycle:
             self.state.last_action_at = self.simulated_now
 
             if self.backtest_mode:
+                plausible = PLAUSIBLE_ACTIONS_BY_CAUSE.get(self.cause_info.cause_category, set())
+                is_correct_action = decision.action in plausible
                 paid = RazorpayExecutor.simulate_customer_outcome(
-                    self.event.get("ground_truth_recoverable", False), decision.action, self.rng
+                    self.event.get("ground_truth_recoverable", False), decision.action,
+                    is_correct_action=is_correct_action, rng=self.rng
                 )
                 result.outcome = "paid" if paid else "not_paid"
                 if paid:

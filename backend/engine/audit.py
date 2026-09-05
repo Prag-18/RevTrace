@@ -50,7 +50,8 @@ class AuditLogger:
         self.csv_path = csv_path
 
         if self.backend == "supabase":
-            from supabase import create_client
+            import httpx
+            from supabase import ClientOptions, create_client
             url = os.environ.get("SUPABASE_URL")
             # Accept the current Supabase variable names as well as the
             # original generic name for backwards compatibility.
@@ -61,7 +62,16 @@ class AuditLogger:
                 raise RuntimeError(
                     "AUDIT_BACKEND=supabase but SUPABASE_URL and a Supabase key are not set."
                 )
-            self.client = create_client(url, key)
+            # PostgREST deprecated its separate ``timeout`` and ``verify``
+            # arguments.  Supplying the configured HTTP client avoids those
+            # deprecated arguments and keeps the connection settings in one
+            # place.
+            http_client = httpx.Client(timeout=120.0)
+            self.client = create_client(
+                url,
+                key,
+                options=ClientOptions(httpx_client=http_client),
+            )
         elif self.backend == "csv":
             self.client = None
             os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)

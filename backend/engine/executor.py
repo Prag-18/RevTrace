@@ -206,20 +206,38 @@ class RazorpayExecutor:
     # ------------------------------------------------------------------
     @staticmethod
     def simulate_customer_outcome(ground_truth_recoverable: bool, action_type: str,
+                                   is_correct_action: bool = True,
                                    rng: Optional[random.Random] = None) -> bool:
+        """
+        is_correct_action: whether the policy's chosen action matches the
+        event's ground-truth best action for its cause (see
+        BEST_ACTION_BY_CAUSE in data_gen/generate_events.py). This is what
+        makes the backtest actually differentiate an intelligent,
+        diagnosis-driven agent from a naive one that retries every failure
+        the same way regardless of cause — without this, high friction
+        values across the board mean nearly ANY strategy eventually
+        recovers ~100% of recoverable revenue given enough attempts,
+        which is not a meaningful or honest metric.
+        """
         rng = rng or random
-        # forced_action outcomes (request_card_update) succeed a bit less
-        # often than a well-timed retry even when the underlying event was
-        # "recoverable", to reflect real friction in asking the customer
-        # to take an action vs. an automated retry succeeding on its own.
-        friction = {
-            "retry_immediate": 0.95,
-            "retry_delayed": 0.90,
-            "request_card_update": 0.75,
-            "escalate_alternate_payment": 0.65,
-        }.get(action_type, 0.8)
         if not ground_truth_recoverable:
             return False
+
+        # friction when the RIGHT action was chosen for this cause
+        correct_action_friction = {
+            "retry_immediate": 0.75,
+            "retry_delayed": 0.70,
+            "request_card_update": 0.60,
+            "escalate_alternate_payment": 0.55,
+        }.get(action_type, 0.65)
+
+        # friction when a MISMATCHED action was chosen — e.g. bare-retrying
+        # an expired card, or asking a customer to "update their card"
+        # when the real issue was a transient issuer-side glitch. Should
+        # rarely work, mirroring real-world dunning failure patterns.
+        mismatched_action_friction = 0.12
+
+        friction = correct_action_friction if is_correct_action else mismatched_action_friction
         return rng.random() < friction
 
 

@@ -1,0 +1,48 @@
+{
+  "n_events": 180,
+  "total_revenue_at_risk": 206765.74,
+  "total_revenue_recovered": 72348.58,
+  "overall_recovery_rate": 0.3499,
+  "baseline_recoverable_revenue_no_intervention": 77938.79,
+  "capture_rate_of_recoverable_revenue": 0.9283,
+  "status_counts": {
+    "escalated": 109,
+    "recovered": 71
+  },
+  "recovered_count": 71,
+  "escalated_count": 109,
+  "closed_lost_count": 0,
+  "avg_attempts_per_event": 1.86,
+  "by_cause_category": {
+    "data_entry_error": {
+      "n_events": 14,
+      "amount_at_risk": 22317.97,
+      "amount_recovered": 10863.74,
+      "recovery_rate": 0.36
+    },
+    "expired_card": {
+      "n_events": 40,
+      "amount_at_risk": 38895.95,
+      "amount_recovered": 4546.71,
+      "recovery_rate": 0.22
+    },
+    "insufficient_funds": {
+      "n_events": 53,
+      "amount_at_risk": 63299.32,
+      "amount_recovered": 26643.56,
+      "recovery_rate": 0.45
+    },
+    "issuer_risk_flag": {
+      "n_events": 29,
+      "amount_at_risk": 38165.45,
+      "amount_recovered": 0.0,
+      "recovery_rate": 0.0
+    },
+    "issuer_technical": {
+      "n_events": 44,
+      "amount_at_risk": 44087.05,
+      "amount_recovered": 30294.57,
+      "recovery_rate": 0.75
+    }
+  }
+}
