@@ -82,6 +82,24 @@ export interface ModelMetrics {
   feature_importance: FeatureImportance[];
 }
 
+export interface SimulateRequest {
+  decline_code: string;
+  amount: number;
+  event_type?: string;
+  customer_tenure_days?: number;
+  customer_past_success_rate?: number;
+  customer_prior_failures_30d?: number;
+  is_first_time_customer?: boolean;
+  day_of_month?: number;
+  assume_recoverable?: boolean | null;
+}
+
+export interface SimulateResult {
+  event_id: string;
+  final_status: string;
+  steps: AuditStep[];
+}
+
 async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, options);
   if (!res.ok) {
@@ -106,5 +124,10 @@ export const api = {
       { method: "POST" }
     );
   },
+  simulate: (req: SimulateRequest) =>
+    fetchJSON<SimulateResult>("/simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }),
 };
-
